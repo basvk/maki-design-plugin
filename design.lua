@@ -57,7 +57,13 @@ Aesthetics and usability are the goal here; correctness still matters but does n
 - Respect `prefers-reduced-motion` and color contrast (WCAG AA).
 
 ## Human feedback
-The user may add notes with `/design-note <text>`. They land in `.maki/design/notes.md` and are read back by `design_viewports`. Treat them as authoritative taste calls and fold them into the next iteration.]]
+The user may add notes with `/design-note <text>`. They land in `.maki/design/notes.md` and are read back by `design_viewports`. Treat them as authoritative taste calls and fold them into the next iteration.
+
+## Working in the open
+The user can watch over your shoulder, so keep them oriented:
+- After `design_preview` succeeds, state the preview URL plainly so they can open it in a browser and watch the page live.
+- Say where artifacts land — `.maki/design/` (preview log, notes) — at least once, and mention it again when you save something notable.
+- Tell them they can run `/design-view` to see the current preview URL, notes and logs.]]
 
 -- Settings live in a plain table, not `register_options`: that call is keyed by
 -- plugin name, and every module `require`d from `global/init.lua` shares the
@@ -123,6 +129,11 @@ local preview = {
   cmd = nil,
   log = nil,
 }
+
+-- Rebuilt when the toggle or the preview URL changes, so the status bar shows
+-- where the live page is. Defined early (the tool below calls it), assigned
+-- once `active` and `set_active` exist.
+local refresh_hint
 
 local function design_dir()
   local cwd = maki.uv.cwd() or "/tmp"
@@ -294,8 +305,14 @@ Framework-agnostic: with no `command`, it looks for an npm `dev`/`start`/`serve`
     end
 
     local note = guessed and " (auto-detected)" or ""
+    if refresh_hint then
+      refresh_hint()
+    end
     return {
-      llm_output = string.format("Dev server ready at %s%s\ncommand: %s\nlog: %s", url, note, cmd, log),
+      llm_output = string.format(
+        "Dev server ready at %s%s\ncommand: %s\nlog: %s\nScreenshots and notes land in %s — tell the user to open %s in a browser to watch the page directly.",
+        url, note, cmd, log, design_dir(), url
+      ),
       written_path = log,
     }
   end,
@@ -378,11 +395,72 @@ Notes persist under `.maki/design/notes.md` across iterations. Call with `text` 
   header = function(input) return input.text and ("note: " .. input.text) or "notes" end,
 })
 
+-- ── artifacts ───────────────────────────────────────────────────────────────
+-- The model writes into .maki/design/ while iterating, which is invisible
+-- unless we say where it is. Everything here is about making that legible:
+-- the live URL, the shots, the notes.
+
+-- The browser plugin saves network/download/console artifacts under
+-- .maki/browser/<run>/. Screenshots are not persisted (they go straight to the
+-- model), so this lists what is actually on disk rather than a directory
+-- nothing writes to.
+local function browser_artifact_dirs()
+  local root = maki.fs.joinpath(maki.uv.cwd() or ".", ".maki", "browser")
+  local entries, err = maki.fs.dir(root)
+  if err or not entries then
+    return {}
+  end
+  local dirs = {}
+  for _, entry in ipairs(entries) do
+    if entry[2] == "directory" then
+      dirs[#dirs + 1] = entry[1]
+    end
+  end
+  table.sort(dirs)
+  return dirs
+end
+
+-- Human-readable view of what the model has produced so far, for the user to
+-- look over its shoulder without leaving the terminal.
+local function artifacts_report()
+  local dir = design_dir()
+  local lines = { "Design artifacts — " .. dir }
+  if preview.url then
+    lines[#lines + 1] = "Preview URL (open in your browser to watch live): " .. preview.url
+  else
+    lines[#lines + 1] = "Preview: not running (the model starts it with design_preview)"
+  end
+  local runs = browser_artifact_dirs()
+  if #runs > 0 then
+    lines[#lines + 1] = string.format("Browser artifacts: %d run(s), latest under .maki/browser/%s/", #runs, runs[#runs])
+  end
+  local notes = maki.fs.read(maki.fs.joinpath(dir, "notes.md"))
+  lines[#lines + 1] = "Notes — " .. dir .. "/notes.md"
+  if notes and notes ~= "" then
+    lines[#lines + 1] = notes:gsub("\n$", "")
+  end
+  lines[#lines + 1] = "Dev server log — " .. dir .. "/preview.log"
+  lines[#lines + 1] = "Screenshots the model took appear inline in the transcript above/below."
+  return table.concat(lines, "\n")
+end
+
 -- ── commands ────────────────────────────────────────────────────────────────
 
 local function set_active(on)
   active = on
-  maki.ui.set_status_hint(on and { { "design", "on" } } or nil)
+  refresh_hint()
+end
+
+refresh_hint = function()
+  if not active then
+    maki.ui.set_status_hint(nil)
+    return
+  end
+  local hint = { { "design", "on" } }
+  if preview.url then
+    hint[#hint + 1] = { " " .. preview.url, "path" }
+  end
+  maki.ui.set_status_hint(hint)
 end
 
 maki.api.register_command({
@@ -397,7 +475,39 @@ maki.api.register_command({
       return
     end
     set_active(true)
-    maki.ui.flash("Design mode on")
+    local where = "Design mode on — artifacts in " .. design_dir()
+    if preview.url then
+      where = where .. ", preview " .. preview.url
+    end
+    maki.ui.flash(where)
+  end,
+})
+
+maki.api.register_command({
+  name = "/design-view",
+  description = "Show design artifacts: preview URL, screenshots, notes",
+  handler = function()
+    local buf = maki.ui.buf()
+    for line in (artifacts_report() .. "\n"):gmatch("([^\n]*)\n") do
+      buf:line(line)
+    end
+    local win = maki.ui.open_win(buf, {
+      title = " design artifacts ",
+      width = "80%",
+      height = "60%",
+      footer = { { "q", "close" }, { "Esc", "close" } },
+      focus = true,
+    })
+    while true do
+      local ev = win:recv()
+      if not ev or ev.type == "close" then
+        break
+      end
+      if ev.type == "key" and (ev.key == "q" or ev.key == "<Esc>") then
+        break
+      end
+    end
+    win:close()
   end,
 })
 

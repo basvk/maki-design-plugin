@@ -11,7 +11,7 @@ A `/design` mode that swaps maki's persona for a design specialist and pairs it 
 - The singleton `identity` and `tone` slots switch to a design persona, and an aggregate `conventions` hint carries the full design workflow — the loop, the screenshot-reading checklist, and the rules. Toggling off restores maki's built-in text exactly. Because the slot content is a function re-evaluated before every run, the change reaches the model as a context update, so the prompt cache survives the switch.
 - Four tools are registered for the preview loop. Rendering is delegated to the companion [maki-browser-plugin](https://github.com/basvk/maki-browser-plugin): `browser_screenshot` already returns PNGs as vision input, so the agent can actually *see* the page it is designing.
 
-Design state and artifacts live under `.maki/design/` in the project: `preview.log` for the dev server, `shots/` for screenshots, and `notes.md` for human feedback.
+Design state and artifacts live under `.maki/design/` in the project: `preview.log` for the dev server and `notes.md` for human feedback.
 
 ### The feedback loop
 
@@ -89,6 +89,28 @@ Add a taste call at any point:
 ```
 
 > While design mode is on, the plugin owns the `identity`/`tone` prompt slots, so any other `identity`/`tone` customization is shadowed by it. Turning it off restores maki's built-in defaults exactly.
+
+### Watching the model work
+
+The model writes everything it produces into `.maki/design/`, and the plugin keeps that visible:
+
+- **Toggling on** flashes the artifacts directory, and the status bar shows the live preview URL once the dev server is up.
+- **The preview URL** is meant to be opened in your own browser — the model states it in prose after starting the server, so you can watch the page update live as it iterates. (Clickability depends on your terminal: most emulators, e.g. iTerm2, WezTerm, Kitty, Ghostty, linkify `http://` URLs on Cmd/Ctrl-click.)
+- **`/design-view`** opens a panel listing the preview URL, the notes, and the artifact/log paths — so you can see what the model produced without hunting through directories.
+
+```
+/design-view
+```
+
+The artifacts themselves:
+
+| Path | What it is |
+| --- | --- |
+| `.maki/design/preview.log` | Dev-server output (startup errors land here). |
+| `.maki/design/notes.md` | Your `/design-note` feedback, read back to the model each iteration. |
+| `.maki/browser/<run>/` | Network/download/console artifacts the browser plugin saves during a session. |
+
+Screenshots the model takes are **not** written to disk — `browser_screenshot` returns them straight to the model, so you see them inline in the transcript. To watch the page yourself, use the preview URL.
 
 ## Configuration
 

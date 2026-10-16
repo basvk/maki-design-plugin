@@ -4,6 +4,8 @@ Turn your [maki](https://github.com/tontinton/maki) coding agent into a UI/UX/fr
 
 A `/design` mode that swaps maki's persona for a design specialist and pairs it with a preview + screenshot feedback loop. Toggle it on, point the agent at a frontend, and it will start a dev server, look at the rendered result, critique it, change it, and look again — instead of only reasoning about the code.
 
+<img width="2548" height="2310" alt="screenshot" src="https://github.com/user-attachments/assets/b8886c44-21aa-4fc5-96bf-03b78389e107" />
+
 ## How it works
 
 `/design` flips two things at once, both through maki's prompt-slot API (no changes to maki itself):
